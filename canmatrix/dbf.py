@@ -27,16 +27,15 @@
 from __future__ import division
 from __future__ import absolute_import
 from __future__ import print_function
-from copy import deepcopy
+from builtins import *
 
+import math
 import logging
 logger = logging.getLogger('root')
 
 from .canmatrix import *
 import re
-import decimal
-default_float_factory = decimal.Decimal
-
+import codecs
 
 # TODO support for [START_PARAM_NODE_RX_SIG]
 # TODO support for [START_PARAM_NODE_TX_MSG]
@@ -62,8 +61,10 @@ def decodeDefine(line):
 
 
 def load(f, **options):
-    dbfImportEncoding = options.get("dbfImportEncoding",'iso-8859-1')
-    float_factory = options.get('float_factory', default_float_factory)
+    if 'dbfImportEncoding' in options:
+        dbfImportEncoding = options["dbfImportEncoding"]
+    else:
+        dbfImportEncoding = 'iso-8859-1'
 
     db = CanMatrix()
 
@@ -88,7 +89,7 @@ def load(f, **options):
             else:
                 (BUName, comment) = line.split(' ', 1)
                 comment = comment.replace('"', '').replace(';', '')
-                db.boardUnitByName(BUName).addComment(comment)
+                db._BUs.byName(BUName).addComment(comment)
 
         if mode == 'FrameDescription':
             if line.startswith(
@@ -120,7 +121,7 @@ def load(f, **options):
                 mode = ''
             else:
                 (bu, attrib, value) = line.split(',', 2)
-                db.boardUnitByName(bu).addAttribute(
+                db._BUs.byName(bu).addAttribute(
                     attrib.replace('"', ''), value[1:-1])
 
         elif mode == 'ParamNetVal':
@@ -213,14 +214,14 @@ def load(f, **options):
                 else:
                     extended = None
                 if len(temparray) > 6:
-                    transmitters = temparray[6].split()
+                    transmitter = temparray[6].split()
                 else:
-                    transmitters = list()
-                newBo = db.addFrame(
+                    transmitter = None
+                newBo = db._fl.addFrame(
                     Frame(name,
-                          id=int(Id),
-                          size=int(size),
-                          transmitters=transmitters))
+                          Id=int(Id),
+                          dlc=size,
+                          transmitter=transmitter))
                 #   Frame(int(Id), name, size, transmitter))
                 if extended == 'X':
                     logger.debug("Extended")
@@ -230,18 +231,13 @@ def load(f, **options):
                 temstr = line.strip()[6:].strip()
                 boList = temstr.split(',')
                 for bo in boList:
-                    db.addEcu(BoardUnit(bo))
+                    db._BUs.add(BoardUnit(bo))
 
             if line.startswith("[START_SIGNALS]"):
                 temstr = line.strip()[15:].strip()
                 temparray = temstr.split(',')
                 (name, size, startbyte, startbit, sign, Max, Min, byteorder,
                  offset, factor, unit, multiplex) = temparray[0:12]
-                Min = float_factory(Min)
-                Max = float_factory(Max)
-                factor = float_factory(factor)
-                ofset = float_factory(offset)
-
                 if len(temparray) > 12:
                     receiver = temparray[12].split(',')
                 else:
@@ -267,15 +263,15 @@ def load(f, **options):
                 startbit += (int(startbyte) - 1) * 8
 
                 newSig = newBo.addSignal(Signal(name,
-                                                startBit=int(startbit),
-                                                size=int(size),
+                                                startBit=startbit,
+                                                signalSize=size,
                                                 is_little_endian=(
                                                     int(byteorder) == 1),
                                                 is_signed=is_signed,
                                                 factor=factor,
                                                 offset=offset,
-                                                min=Min * factor,
-                                                max=Max * factor,
+                                                min=float(Min) * float(factor),
+                                                max=float(Max) * float(factor),
                                                 unit=unit,
                                                 receiver=receiver,
                                                 is_float=is_float,
@@ -301,15 +297,14 @@ def load(f, **options):
             # receiver is only given in the signals, so do propagate the
             # receiver to the frame:
             frame.updateReceiver()
-        db.EnumAttribs2Values()
     return db
 
 
-def dump(mydb, f, **options):
-    # create copy because export changes database
-    db = deepcopy(mydb)
-    dbfExportEncoding = options.get("dbfExportEncoding", 'iso-8859-1')
-    db.EnumAttribs2Keys()
+def dump(db, f, **options):
+    if 'dbfExportEncoding' in options:
+        dbfExportEncoding = options["dbfExportEncoding"]
+    else:
+        dbfExportEncoding = 'iso-8859-1'
 
     outstr =  """//******************************BUSMASTER Messages and signals Database ******************************//
 
@@ -324,10 +319,6 @@ def dump(mydb, f, **options):
 
     # Frames
     for frame in db.frames:
-        if frame.is_complex_multiplexed:
-            logger.error("export complex multiplexers is not supported - ignoring frame " + frame.name)
-            continue
-
         # Name unMsgId m_ucLength m_ucNumOfSignals m_cDataFormat m_cFrameFormat? m_txNode
         # m_cDataFormat If 1 dataformat Intel, 0- Motorola -- immer 1 original Converter macht das nach anzahl entsprechender Signale
         # cFrameFormat Standard 'S' Extended 'X'
@@ -337,10 +328,10 @@ def dump(mydb, f, **options):
         outstr += "[START_MSG] " + frame.name + \
             ",%d,%d,%d,1,%c," % (frame.id, frame.size,
                                  len(frame.signals), extended)
-        if frame.transmitters.__len__() == 0:
+        if frame.transmitter.__len__() == 0:
             frame.addTransmitter("Vector__XXX")
 # DBF does not support multiple Transmitters
-        outstr += frame.transmitters[0] + "\n"
+        outstr += frame.transmitter[0] + "\n"
 
         for signal in frame.signals:
             # m_acName ucLength m_ucWhichByte m_ucStartBit
@@ -363,11 +354,8 @@ def dump(mydb, f, **options):
                     sign = 'D'
                 else:
                     sign = 'F'
-
-            if signal.factor == 0:
-                signal.factor = 1
-
-            outstr += "[START_SIGNALS] " + signal.name + ",%d,%d,%d,%c," % (signal.size,
+                    
+            outstr += "[START_SIGNALS] " + signal.name + ",%d,%d,%d,%c," % (signal.signalsize,
                                                                             whichbyte,
                                                                             int(signal.getStartbit(bitNumbering=1,
                                                                                                    startLittle=True)) % 8,
@@ -426,9 +414,6 @@ def dump(mydb, f, **options):
     # signal descriptions
     outstr += "[START_DESC_SIG]\n"
     for frame in db.frames:
-        if frame.is_complex_multiplexed:
-            continue
-
         for signal in frame.signals:
             if signal.comment is not None:
                 comment = signal.comment.replace("\n", " ")
@@ -438,42 +423,40 @@ def dump(mydb, f, **options):
     outstr += "[END_DESC]\n\n"
 
     outstr += "[START_PARAM]\n"
-
     # db-parameter
     outstr += "[START_PARAM_NET]\n"
-    for (type, define) in sorted(list(db.globalDefines.items())):
-        defaultVal = define.defaultValue
-        if defaultVal is None:
-            defaultVal = "0"
-        outstr += '"' + type + '",' + define.definition.replace(' ', ',') + ',' + defaultVal + '\n'
+    for (type, define) in list(db.globalDefines.items()):
+        if define.defaultValue is not None:
+            outstr += '"' + type + '",' + \
+                define.definition.replace(
+                    ' ', ',') + ',' + define.defaultValue + '\n'
     outstr += "[END_PARAM_NET]\n"
 
     # bu-parameter
     outstr += "[START_PARAM_NODE]\n"
-    for (type, define) in sorted(list(db.buDefines.items())):
-        defaultVal = define.defaultValue
-        if defaultVal is None:
-            defaultVal = "0"
-        outstr += '"' + type + '",' + define.definition.replace(' ', ',') + ',' + defaultVal + '\n'
+    for (type, define) in list(db.buDefines.items()):
+        if define.defaultValue is not None:
+            outstr += '"' + type + '",' + \
+                define.definition.replace(
+                    ' ', ',') + ',' + define.defaultValue + '\n'
     outstr += "[END_PARAM_NODE]\n"
 
     # frame-parameter
     outstr += "[START_PARAM_MSG]\n"
-    for (type, define) in sorted(list(db.frameDefines.items())):
-        defaultVal = define.defaultValue
-        if defaultVal is None:
-            defaultVal = "0"
-        outstr += '"' + type + '",' + define.definition.replace(' ', ',') + ',' + defaultVal + '\n'
-
+    for (type, define) in list(db.frameDefines.items()):
+        if define.defaultValue is not None:
+            outstr += '"' + type + '",' + \
+                define.definition.replace(
+                    ' ', ',') + ',' + define.defaultValue + '\n'
     outstr += "[END_PARAM_MSG]\n"
 
     # signal-parameter
     outstr += "[START_PARAM_SIG]\n"
     for (type, define) in list(db.signalDefines.items()):
-        defaultVal = define.defaultValue
-        if defaultVal is None:
-            defaultVal = "0"
-        outstr += '"' + type + '",' + define.definition.replace(' ', ',') + ',' + defaultVal + '\n'
+        if define.defaultValue is not None:
+            outstr += '"' + type + '",' + \
+                define.definition.replace(
+                    ' ', ',') + ',' + define.defaultValue + '\n'
     outstr += "[END_PARAM_SIG]\n"
 
     outstr += "[START_PARAM_VAL]\n"
@@ -487,9 +470,6 @@ def dump(mydb, f, **options):
     # messages-attributes:
     outstr += "[START_PARAM_MSG_VAL]\n"
     for frame in db.frames:
-        if frame.is_complex_multiplexed:
-            continue
-
         for attrib, val in sorted(list(frame.attributes.items())):
             outstr += str(frame.id) + ',S,"' + attrib + '","' + val + '"\n'
     outstr += "[END_PARAM_MSG_VAL]\n"
@@ -497,9 +477,6 @@ def dump(mydb, f, **options):
     # signal-attributes:
     outstr += "[START_PARAM_SIG_VAL]\n"
     for frame in db.frames:
-        if frame.is_complex_multiplexed:
-            continue
-
         for signal in frame.signals:
             for attrib, val in sorted(list(signal.attributes.items())):
                 outstr += str(frame.id) + ',S,' + signal.name + \

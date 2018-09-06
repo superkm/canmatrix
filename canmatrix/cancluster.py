@@ -9,12 +9,12 @@ class canCluster(dict):
         frameArrayName = []
         for matrixName in self:
             for frame in self[matrixName].frames:
-                if frame.name not in frameArrayName:
-                    frameArrayName.append(frame.name)
+                if frame._name not in frameArrayName:
+                    frameArrayName.append(frame._name)
                     frameArray.append(frame)
                 else:
-                    index = frameArrayName.index(frame.name)
-                    for transmitter in frame.transmitters:
+                    index = frameArrayName.index(frame._name)
+                    for transmitter in frame.transmitter:
                         frameArray[index].addTransmitter(transmitter)
                     for receiver in frame.receiver:
                         frameArray[index].addReceiver(receiver)
@@ -27,11 +27,11 @@ class canCluster(dict):
         for matrixName in self:
             for frame in self[matrixName].frames:
                 for signal in frame.signals:
-                    if signal.name not in signalArrayName:
-                        signalArrayName.append(signal.name)
+                    if signal._name not in signalArrayName:
+                        signalArrayName.append(signal._name)
                         signalArray.append(signal)
                     else:
-                        index = signalArrayName.index(signal.name)
+                        index = signalArrayName.index(signal._name)
                         for receiver in signal.receiver:
                             signalArray[index].addReceiver(receiver)
         self._signals = signalArray
@@ -41,8 +41,8 @@ class canCluster(dict):
         ECUArrayName = []
         for matrixName in self:
             for ecu in self[matrixName].boardUnits:
-                if ecu.name not in ECUArrayName:
-                    ECUArrayName.append(ecu.name)
+                if ecu._name not in ECUArrayName:
+                    ECUArrayName.append(ecu._name)
                     ECUArray.append(ecu)
         self._ecus = ECUArray
 

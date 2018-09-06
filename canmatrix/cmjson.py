@@ -31,15 +31,13 @@ import json
 import sys
 
 
-
 extension = 'json'
 
 def dump(db, f, **options):
-
-    exportCanard = options.get('jsonCanard', False)
-    motorolaBitFormat = options.get('jsonMotorolaBitFormat', "lsb")
-
-
+    if 'jsonCanard' in options:
+        exportCanard = options['jsonCanard']
+    else:
+        exportCanard = False
     if 'jsonAll' in options:
         exportAll = options['jsonAll']
     else:
@@ -49,7 +47,7 @@ def dump(db, f, **options):
         mode = 'w'
     else:
         mode = 'wb'
-
+  
     exportArray = []
 
     if exportCanard:
@@ -71,22 +69,12 @@ def dump(db, f, **options):
         for frame in db.frames:
             signals = []
             for signal in frame.signals:
-                if not signal.is_little_endian:
-                    if motorolaBitFormat == "msb":
-                        startBit = signal.getStartbit(bitNumbering=1)
-                    elif motorolaBitFormat == "msbreverse":
-                        startBit = signal.getStartbit()
-                    else:  # motorolaBitFormat == "lsb"
-                        startBit = signal.getStartbit(bitNumbering=1, startLittle=True)
-                else:
-                    startBit = signal.getStartbit(bitNumbering=1, startLittle=True)
-
                 signals.append({
                     "name": signal.name,
-                    "start_bit": startBit,
-                    "bit_length": signal.size,
-                    "factor": str(signal.factor),
-                    "offset": str(signal.offset),
+                    "start_bit": signal.getStartbit(bitNumbering=1, startLittle=True),
+                    "bit_length": signal.signalsize,
+                    "factor": float(signal.factor),
+                    "offset": float(signal.offset),
                     "is_big_endian": signal.is_little_endian == 0,
                     "is_signed": signal.is_signed,
                     "is_float": signal.is_float
@@ -98,43 +86,28 @@ def dump(db, f, **options):
     else:  # exportall
         for frame in db.frames:
             frameattribs = {}
-            for attribute in db.frameDefines:
-                frameattribs[attribute] = frame.attribute(db,attribute)
+            for attribute in frame.attributes:
+                frameattribs[attribute] = frame.attributes[attribute]
             signals = []
             for signal in frame.signals:
                 attribs = {}
-                for attribute in db.signalDefines:
-                    attribs[attribute] = signal.attribute(db,attribute)
-
-                values = {}
-                for key in signal.values:
-                    values[key] = signal.values[key]
-                if not signal.is_little_endian:
-                    if motorolaBitFormat == "msb":
-                        startBit = signal.getStartbit(bitNumbering=1)
-                    elif motorolaBitFormat == "msbreverse":
-                        startBit = signal.getStartbit()
-                    else:  # motorolaBitFormat == "lsb"
-                        startBit = signal.getStartbit(bitNumbering=1, startLittle=True)
-                else:  # motorolaBitFormat == "lsb"
-                    startBit = signal.getStartbit(bitNumbering=1, startLittle=True)
-
-
+                for attribute in signal.attributes:
+                    attribs[attribute] = signal.attributes[attribute]
                 signalDict = {
                     "name": signal.name,
-                    "start_bit": startBit,
+                    "start_bit": signal.getStartbit(bitNumbering=1, startLittle=True),
                     "bit_length": signal.signalsize,
-                    "factor": str(signal.factor),
-                    "offset": str(signal.offset),
+                    "factor": float(signal.factor),
+                    "offset": float(signal.offset),
                     "is_big_endian": signal.is_little_endian == 0,
                     "is_signed": signal.is_signed,
                     "is_float": signal.is_float,
                     "comment": signal.comment,
                     "attributes": attribs,
-                    "values": values    
                 }
                 if signal.multiplex is not None:
                     signalDict["multiplex"] = signal.multiplex
+                signals.append(signalDict)
                 if signal.unit is not None:
                     signalDict["unit"] = signal.unit
                 signals.append(signalDict)
@@ -146,8 +119,7 @@ def dump(db, f, **options):
                  "is_extended_frame": frame.extended == 1,
                  "signals": signals,
                  "attributes": frameattribs,
-                 "comment": frame.comment,
-                 "length": frame.size})
+                 "comment": frame.comment})
     if (sys.version_info > (3, 0)):
         import io
         temp = io.TextIOWrapper(f, encoding='UTF-8')
@@ -158,15 +130,9 @@ def dump(db, f, **options):
     json.dump({"messages": exportArray}, temp, sort_keys=True,
               indent=4, separators=(',', ': '))
 
-    if sys.version_info > (3, 0):
-        # When TextIOWrapper is garbage collected, it closes the raw stream
-        # unless the raw stream is detached first
-        temp.detach()
-
-
 def load(f, **options):
     db = CanMatrix()
-
+    
     if (sys.version_info > (3, 0)):
         import io
         jsonData = json.load(io.TextIOWrapper(f, encoding='UTF-8'))
@@ -177,10 +143,8 @@ def load(f, **options):
         for frame in jsonData["messages"]:
             #            newframe = Frame(frame["id"],frame["name"],8,None)
             newframe = Frame(frame["name"],
-                             id=frame["id"],
-                             size=8)
-            if "length" in frame:
-                newframe.size = frame["length"]
+                             Id=frame["id"],
+                             dlc=8)
 
             if "is_extended_frame" in frame and frame["is_extended_frame"]:
                 newframe.extended = 1
@@ -195,14 +159,14 @@ def load(f, **options):
                 if "is_float" in signal and signal["is_float"]:
                     is_float = True
                 else:
-                    is_float = False
+                    is_float = False                    
                 if "is_signed" in signal and signal["is_signed"]:
                     is_signed = True
                 else:
                     is_signed = False
                 newsignal = Signal(signal["name"],
                                    startBit=signal["start_bit"],
-                                   size=signal["bit_length"],
+                                   signalSize=signal["bit_length"],
                                    is_little_endian=is_little_endian,
                                    is_signed=is_signed,
                                    factor=signal["factor"],
@@ -213,14 +177,11 @@ def load(f, **options):
                 if "multiplex" in signal and signal["multiplex"]:
                     newsignal.unit = signal["multiplex"]
 
-                if "values" in signal and signal["values"]:
-                    for key in signal["values"]:
-                        newsignal.addValues(key, signal["values"][key])
                 if newsignal.is_little_endian == False:
 
                     newsignal.setStartbit(
-                        newsignal.startBit, bitNumbering=1, startLittle=True)
+                        newsignal._startbit, bitNumbering=1, startLittle=True)
                 newframe.addSignal(newsignal)
-            db.addFrame(newframe)
+            db._fl.addFrame(newframe)
     f.close()
     return db

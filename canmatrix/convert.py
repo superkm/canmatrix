@@ -51,11 +51,13 @@ def convert(infile, outfileName, **options):
             ecuList = options['ecus'].split(',')
             db = cm.CanMatrix()
             for ecu in ecuList:
+                logger.info("Copying ECU " + ecu)
                 cmcp.copyBUwithFrames(ecu, dbs[name], db)
         if 'frames' in options and options['frames'] is not None:
             frameList = options['frames'].split(',')
             db = cm.CanMatrix()
             for frame in frameList:
+                logger.info("Copying Frame " + frame)
                 cmcp.copyFrame(frame, dbs[name], db)
         if db is None:
             db = dbs[name]
@@ -68,11 +70,8 @@ def convert(infile, outfileName, **options):
                 for dbTemp in dbTempList:
                     if mergeString.__len__() == 1:
                         print ("merge complete: " + mergeString[0])
-                        db.merge([dbTempList[dbTemp]])
-#                        for frame in dbTempList[dbTemp].frames:
-#                            copyResult = cmcp.copyFrame(frame.id, dbTempList[dbTemp], db)
-#                            if copyResult == False:
-#                                logger.error("ID Conflict, could not copy/merge frame " + frame.name + "  %xh " % frame.id + database)
+                        for frame in dbTempList[dbTemp].frames:
+                            cmcp.copyFrame(frame.id, dbTempList[dbTemp], db)
                     for mergeOpt in mergeString[1:]:
                         if mergeOpt.split('=')[0] == "ecu":
                             cmcp.copyBUwithFrames(
@@ -99,64 +98,6 @@ def convert(infile, outfileName, **options):
             deleteFrameList = options['deleteFrame'].split(',')
             for frame in deleteFrameList:
                 db.delFrame(frame)
-        if 'addFrameReceiver' in options and options['addFrameReceiver'] is not None:
-            touples = options['addFrameReceiver'].split(',')
-            for touple in touples:
-                (frameName, ecu) = touple.split(':')
-                frames = db.globFrames(frameName)
-                for frame in frames:
-                    for signal in frame.signals:
-                        signal.addReceiver(ecu)
-                    frame.updateReceiver()
-
-        if 'frameIdIncrement' in options and options['frameIdIncrement'] is not None:
-            idIncrement = int(options['frameIdIncrement'])
-            for frame in db.frames:
-                frame.id += idIncrement
-        if 'changeFrameId' in options and options['changeFrameId'] is not None:
-            changeTuples = options['changeFrameId'].split(',')
-            for renameTuple in changeTuples:
-                old, new = renameTuple.split(':')
-                frame = db.frameById(int(old))
-                if frame is not None:
-                    frame.id = int(new)
-                else:
-                    logger.error("frame with id {} not found", old)
-
-
-        if 'setFrameFd' in options and options['setFrameFd'] is not None:
-            fdFrameList = options['setFrameFd'].split(',')
-            for frame in fdFrameList:
-                framePtr = db.frameByName(frame)
-                if framePtr is not None:
-                    framePtr.is_fd = True
-        if 'unsetFrameFd' in options and options['unsetFrameFd'] is not None:
-            fdFrameList = options['unsetFrameFd'].split(',')
-            for frame in fdFrameList:
-                framePtr = db.frameByName(frame)
-                if framePtr is not None:
-                    framePtr.is_fd = False
-
-        if 'skipLongDlc' in options and options['skipLongDlc'] is not None:
-            deleteFrameList = []
-            for frame in db.frames:
-                if frame.size > int(options['skipLongDlc']):
-                    deleteFrameList.append(frame)
-            for frame in deleteFrameList:
-                db.delFrame(frame)
-
-        if 'cutLongFrames' in options and options['cutLongFrames'] is not None:
-            for frame in db.frames:
-                if frame.size > int(options['cutLongFrames']):
-                    deleteSignalList = []
-                    for sig in frame.signals:
-                        if sig.getStartbit() + int(sig.signalsize) > int(options['cutLongFrames'])*8:
-                            deleteSignalList.append(sig)
-                    for sig in deleteSignalList:
-                        frame.signals.remove(sig)
-                    frame.size = 0
-                    frame.calcDLC()
-
         if 'renameSignal' in options and options['renameSignal'] is not None:
             renameTuples = options['renameSignal'].split(',')
             for renameTuple in renameTuples:
@@ -257,14 +198,6 @@ def main():
     parser.add_option("", "--recalcDLC",
                       dest="recalcDLC", default=False,
                       help="recalculate dlc; max: use maximum of stored and calculated dlc; force: force new calculated dlc")
-    parser.add_option("", "--skipLongDlc",
-                      dest="skipLongDlc", default=None,
-                      help="skip all Frames with dlc bigger than given threshold\n")
-    parser.add_option("", "--cutLongFrames",
-                      dest="cutLongFrames", default=None,
-                      help="cut all signals out of Frames with dlc bigger than given threshold\n")
-
-
 
     parser.add_option("", "--arxmlIgnoreClusterInfo", action="store_true",
                       dest="arxmlIgnoreClusterInfo", default=False,
@@ -309,17 +242,6 @@ def main():
     parser.add_option("", "--jsonExportAll",
                       dest="jsonAll", action="store_true", default=False,
                       help="Export more data to json format")
-    parser.add_option("", "--jsonMotorolaBitFormat",
-                      dest="jsonMotorolaBitFormat", default="lsb",
-                      help="Json format: startbit of motorola signals\nValid values: msb, lsb, msbreverse\n default lsb")
-
-    parser.add_option("", "--additionalFrameAttributes",
-                      dest="additionalFrameAttributes", default="",
-                      help="append collums to csv/xls(x), example: is_fd")
-
-    parser.add_option("", "--additionalSignalAttributes",
-                      dest="additionalAttributes", default="",
-                      help="append collums to csv/xls(x), example: is_signed,attributes[\"GenSigStartValue\"] ")
 
     parser.add_option("", "--ecus",
                       dest="ecus", default=None,
@@ -340,12 +262,6 @@ def main():
                       dest="renameEcu", default=None,
                       help="rename Ecu form databases. (comma separated list)\nSyntax: --renameEcu=myOldEcu:myNewEcu,mySecondEcu:mySecondNewEcu")
 
-    parser.add_option("", "--addFrameReceiver",
-                      dest="addFrameReceiver", default=None,
-                      help="add receiver Ecu to frame(s) (comma separated list)\nSyntax: --addFrameReceiver=framename:myNewEcu,mySecondEcu:myNEWEcu")
-
-
-
     parser.add_option("", "--deleteFrame",
                       dest="deleteFrame", default=None,
                       help="delete Frame form databases. (comma separated list)\nSyntax: --deleteFrame=myFrame1,mySecondFrame")
@@ -353,27 +269,12 @@ def main():
                       dest="renameFrame", default=None,
                       help="rename Frame form databases. (comma separated list)\nSyntax: --renameFrame=myOldFrame:myNewFrame,mySecondFrame:mySecondNewFrame")
 
-    parser.add_option("", "--frameIdIncrement",
-                      dest="frameIdIncrement", default=None,
-                      help="increment each frame.id in database by increment\nSyntax: --frameIdIncrement=increment")
-
-    parser.add_option("", "--changeFrameId",
-                      dest="changeFrameId", default=None,
-                      help="change frame.id in database\nSyntax: --changeFrameId=oldId:newId")
-
-
     parser.add_option("", "--deleteSignal",
                       dest="deleteSignal", default=None,
                       help="delete Signal form databases. (comma separated list)\nSyntax: --deleteSignal=mySignal1,mySecondSignal")
     parser.add_option("", "--renameSignal",
                       dest="renameSignal", default=None,
                       help="rename Signal form databases. (comma separated list)\nSyntax: --renameSignal=myOldSignal:myNewSignal,mySecondSignal:mySecondNewSignal")
-    parser.add_option("", "--setFrameFd",
-                      dest="setFrameFd", default=None,
-                      help="set Frame from database to canfd. (comma separated list)\nSyntax: --setFrameFd=myFrame1,mySecondFrame")
-    parser.add_option("", "--unsetFrameFd",
-                      dest="unsetFrameFd", default=None,
-                      help="set Frame from database to normal (not FD). (comma separated list)\nSyntax: --unsetFrameFd=myFrame1,mySecondFrame")
 
     (cmdlineOptions, args) = parser.parse_args()
     if len(args) < 2:

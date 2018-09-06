@@ -152,7 +152,7 @@ def dump(db, f, **options):
             signalInstance.set("ID", "PDUINST_" + signal.name)
             # startBit: TODO - find out correct BYTEORDER ...
             createSubElementFx(signalInstance, "BIT-POSITION",
-                               str(signal.startBit))
+                               str(signal._startbit))
             if signal.is_little_endian:
                 createSubElementFx(
                     signalInstance,
@@ -201,7 +201,7 @@ def dump(db, f, **options):
                     signalRef.set("ID-REF", "SIG_" + signal.name)
 
         for frame in db.frames:
-            if bu.name in frame.transmitters:
+            if bu.name in frame.transmitter:
                 for signal in frame.signals:
                     outputPort = createSubElementFx(inputPorts, "OUTPUT-PORT")
                     outputPort.set("ID", "OUTP_" + signal.name)

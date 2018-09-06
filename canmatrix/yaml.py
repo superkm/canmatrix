@@ -57,9 +57,9 @@ def dump(db, f, **options):
     for i, frame in enumerate(newdb.frames):
         for j, signal in enumerate(frame.signals):
             if signal.is_little_endian == False:
-                signal.startbit = signal.getStartbit(
+                signal._startbit = signal.getStartbit(
                     bitNumbering=1, startLittle=True)
-#                newdb.frames[i].signals[j].startbit = signal.startbit
+#                newdb.frames[i].signals[j]._startbit = signal._startbit
 
 #    f = open(filename, "w")
     if representers:
@@ -90,7 +90,8 @@ def frame_constructor(loader, node):
         node=node,
         cls=Frame,
         mapping={
-            'size': 'dlc',
+            'Transmitter': 'transmitter',
+            'Size': 'dlc',
         },
     )
 

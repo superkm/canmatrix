@@ -5,10 +5,6 @@ import logging
 logger = logging.getLogger('root')
 import canmatrix
 import os
-if sys.version_info > (3, 0):
-    import io
-else:
-    import StringIO
 
 moduleList = ["arxml", "cmcsv", "dbc", "dbf", "cmjson",
               "kcd", "fibex", "sym", "xls", "xlsx", "yaml"]
@@ -41,31 +37,25 @@ for loadedModule in loadedFormats:
         extensionMapping[loadedModule] = loadedModule
 
 
-def loads(string, importType=None, key="", flatImport=None, encoding="utf-8",**options):
-    if sys.version_info > (3, 0):
-        if type(string) == str:
-            string = bytes(string, encoding)
-        fileObject = io.BytesIO(string)
-    else:
-        string = string.encode(encoding)
-        fileObject = StringIO.StringIO(string)
+def loads(string, importType=None, key="", flatImport=None, **options):
+    fileObject = StringIO.StringIO[string]
     return load(fileObject, importType, key, flatImport, **options)
 
 
 def loadp(path, importType=None, key="", flatImport=None, **options):
-    with open(path, "rb") as fileObject:
-        if not importType:
-            for supportedImportType, extension in extensionMapping.items():
-                if path.lower().endswith(extension) and "load" in supportedFormats[supportedImportType]:
-                    importType = supportedImportType
-                    break
+    fileObject = open(path, "rb")
+    if not importType:
+        for key, extension in extensionMapping.items():
+            if path.endswith(extension) and "load" in supportedFormats[key]:
+                importType = key
+                break
 
-        if importType:
-            return load(fileObject, importType, key, flatImport, **options)
-        else:
-            logger.error("This file format is not supported for reading")
-            return None
-    return None
+    if importType:
+        return load(fileObject, importType, **options)
+    else:
+        logger.error("This file format is not supported for reading")
+        return None
+
 
 def load(fileObject, importType, key="", flatImport=None, **options):
     dbs = {}
@@ -94,7 +84,7 @@ def dump(canMatrixOrCluster, fileObject, exportType, **options):
 def dumpp(canCluster, path, exportType=None, **options):
     if not exportType:
         for key, extension in extensionMapping.items():
-            if path.lower().endswith("." + extension) and "dump" in supportedFormats[key]:
+            if path.endswith("." + extension) and "dump" in supportedFormats[key]:
                 exportType = key
                 break
     if exportType:

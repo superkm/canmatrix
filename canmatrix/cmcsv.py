@@ -22,22 +22,20 @@
 #
 # this script exports canmatrix-objects to a CSV file. (Based on exportxlsx)
 # Author: Martin Hoffmann (m8ddin@gmail.com)
-from __future__ import absolute_import
 
 from collections import defaultdict
 import sys
 import csv
-import logging
-from canmatrix.xls_common import *
-
-logger = logging.getLogger('root')
 
 if (sys.version_info > (3, 0)):
     import codecs
 
+
 extension = 'csv'
 
+
 class csvRow:
+
     def __init__(self):
         self._rowdict = defaultdict(str)
 
@@ -49,17 +47,6 @@ class csvRow:
             if type(item).__name__ == "unicode":
                 item = item.encode('utf-8')
         self._rowdict[key] = item
-
-    def __add__(self, other):
-        if len(self._rowdict.keys()) > 0:
-            start = max(self._rowdict.keys()) +1
-        else:
-            start = 0
-        i = 0
-        for item in other:
-            self[start+i] = item
-            i += 1
-        return self
 
     def write(self, column, value):
         self._rowdict[column] = value
@@ -78,21 +65,132 @@ class csvRow:
     def __str__(self):
         return self.toCSV()
 
+
+def writeFramex(frame, row):
+    # frame-id
+    row[0] = "%3Xh" % frame.id
+    # frame-Name
+    row[1] = frame.name
+
+    # determine cycle-time
+    if "GenMsgCycleTime" in frame.attributes:
+        row[2] = int(frame.attributes["GenMsgCycleTime"])
+
+    # determine send-type
+    if "GenMsgSendType" in frame.attributes:
+        if frame.attributes["GenMsgSendType"] == "5":
+            row[3] = "Cyclic+Change"
+            if "GenMsgDelayTime" in frame.attributes:
+                row[4] = int(frame.attributes["GenMsgDelayTime"])
+        elif frame.attributes["GenMsgSendType"] == "0":
+            row[3] = "Cyclic"
+        elif frame.attributes["GenMsgSendType"] == "2":
+            row[3] = "BAF"
+            if "GenMsgNrOfRepetitions" in frame.attributes:
+                row[4] = int(frame.attributes["GenMsgNrOfRepetitions"])
+        elif frame.attributes["GenMsgSendType"] == "8":
+            row[3] = "DualCycle"
+            if "GenMsgCycleTimeActive" in frame.attributes:
+                row[4] = int(frame.attributes["GenMsgCycleTimeActive"])
+        elif frame.attributes["GenMsgSendType"] == "10":
+            row[3] = "None"
+            if "GenMsgDelayTime" in frame.attributes:
+                row[3] = int(frame.attributes["GenMsgDelayTime"])
+        elif frame.attributes["GenMsgSendType"] == "9":
+            row[3] = "OnChange"
+            if "GenMsgNrOfRepetitions" in frame.attributes:
+                row[4] = int(frame.attributes["GenMsgNrOfRepetitions"])
+        elif frame.attributes["GenMsgSendType"] == "1":
+            row[3] = "Spontaneous"
+            if "GenMsgDelayTime" in frame.attributes:
+                row[4] = int(frame.attributes["GenMsgDelayTime"])
+        else:
+            pass
+
+
 def writeBuMatrixx(buList, sig, frame, row, col):
     # iterate over boardunits:
     for bu in buList:
         # write "s" "r" "r/s" if signal is sent, received or send and received
         # by boardunit
-        if bu in sig.receiver and bu in frame.transmitters:
+        if bu in sig.receiver and bu in frame.transmitter:
             row[col] = "r/s"
         elif bu in sig.receiver:
             row[col] = "r"
-        elif bu in frame.transmitters:
+        elif bu in frame.transmitter:
             row[col] = "s"
         else:
             pass
         col += 1
     return col
+
+
+def writeValuex(label, value, row, rearCol):
+    row[rearCol] = value
+    row[rearCol + 1] = label
+
+
+def writeSignalx(db, sig, row, rearCol):
+    # startbyte
+    row[5] = int((sig.getStartbit()) / 8 + 1)
+    # startbit
+    row[6] = (sig.getStartbit()) % 8
+    # signalname
+    row[7] = sig.name
+
+    # eval comment:
+    if sig.comment is None:
+        comment = ""
+    else:
+        comment = sig.comment
+
+    # eval multiplex-info
+    if sig.multiplex == 'Multiplexor':
+        comment = "Mode Signal: " + comment
+    elif sig.multiplex is not None:
+        comment = "Mode " + str(sig.multiplex) + ":" + comment
+
+    # write comment and size of signal in sheet
+    row[8] = comment
+    row[9] = sig.signalsize
+
+    # startvalue of signal available
+    if "GenSigStartValue" in sig.attributes:
+        if db.signalDefines["GenSigStartValue"].definition == "STRING":
+            row[10] = sig.attributes["GenSigStartValue"]
+        elif db.signalDefines["GenSigStartValue"].definition == "INT" or db.signalDefines["GenSigStartValue"].definition == "HEX":
+            row[10] = "%Xh" % int(sig.attributes["GenSigStartValue"])
+
+    # SNA-value of signal available
+    if "GenSigSNA" in sig.attributes:
+        row[11] = sig.attributes["GenSigSNA"][1:-1]
+
+    # eval byteorder (intel == 1 / motorola == 0)
+    if sig.is_little_endian == True:
+        row[12] = "i"
+    else:
+        row[12] = "m"
+
+    # signed / unsigned
+    if sig.is_signed == True:
+        row[13] = "s"
+    else:
+        row[13] = "u"
+
+    # is a unit defined for signal?
+    if sig.unit.strip().__len__() > 0:
+        # factor not 1.0 ?
+        if float(sig.factor) != 1:
+            row[rearCol + 2] = "%g" % float(sig.factor) + "  " + sig.unit
+        #factor == 1.0
+        else:
+            row[rearCol + 2] = sig.unit
+    # no unit defined
+    else:
+        # factor not 1.0 ?
+        if float(sig.factor) != 1:
+            row[rearCol + 2] = float(sig.factor)
+
 
 def dump(db, thefile, delimiter=',', **options):
     head_top = [
@@ -110,22 +208,7 @@ def dump(db, thefile, delimiter=',', **options):
         ' Signal Not Available',
         'Byteorder',
         'is signed']
-    head_tail = ['Name / Phys. Range', 'Function / Increment Unit','Value']
-
-    if "additionalAttributes" in options and len(options["additionalAttributes"]) > 0:
-        additionalSignalCollums = options["additionalAttributes"].split(",")
-    else:
-        additionalSignalCollums = []#["attributes['DisplayDecimalPlaces']"]
-
-    if "additionalFrameAttributes" in options and len(options["additionalFrameAttributes"]) > 0:
-        additionalFrameCollums = options["additionalFrameAttributes"].split(",")
-    else:
-        additionalFrameCollums = []#["attributes['DisplayDecimalPlaces']"]
-
-    if 'xlsMotorolaBitFormat' in options:
-        motorolaBitFormat = options["xlsMotorolaBitFormat"]
-    else:
-        motorolaBitFormat = "msbreverse"
+    head_tail = ['Value', 'Name / Phys. Range', 'Function / Increment Unit']
 
     csvtable = list()  # List holding all csv rows
 
@@ -151,22 +234,11 @@ def dump(db, thefile, delimiter=',', **options):
         headerrow.write(col, head)
         col += 1
 
-    for additionalCol in additionalFrameCollums:
-        headerrow.write(col,"frame." + additionalCol)
-        col += 1
-
-    for additionalCol in additionalSignalCollums:
-        headerrow.write(col,"signal." + additionalCol)
-        col += 1
-
     csvtable.append(headerrow)
     # -- headers end...
 
     frameHash = {}
     for frame in db.frames:
-        if frame.is_complex_multiplexed:
-            logger.error("export complex multiplexers is not supported - ignoring frame " + frame.name)
-            continue
         frameHash[int(frame.id)] = frame
 
     # set row to first Frame (row = 0 is header)
@@ -181,15 +253,6 @@ def dump(db, thefile, delimiter=',', **options):
         for sig in frame.signals:
             sigHash["%02d" % int(sig.getStartbit()) + sig.name] = sig
 
-        additionalFrameInfo = []
-        for frameInfo in additionalFrameCollums:
-            try:
-                temp = eval("frame." + frameInfo)
-            except:
-                temp = ""
-            additionalFrameInfo.append(temp)
-
-
         # iterate over signals
         for sig_idx in sorted(sigHash.keys()):
             sig = sigHash[sig_idx]
@@ -199,26 +262,14 @@ def dump(db, thefile, delimiter=',', **options):
                 # iterate over values in valuetable
                 for val in sorted(sig.values.keys()):
                     signalRow = csvRow()
-                    signalRow += getFrameInfo(db,frame)
-
-                    (front, back) = getSignal(db,sig,motorolaBitFormat)
-                    signalRow += front
-                    signalRow += ("s" if sig.is_signed else "u")
-
+                    writeFramex(frame, signalRow)
                     col = head_top.__len__()
                     col = writeBuMatrixx(buList, sig, frame, signalRow, col)
-                    signalRow += back
                     # write Value
-                    signalRow += [val, sig.values[val]]
+                    writeValuex(val, sig.values[val], signalRow, col)
+                    writeSignalx(db, sig, signalRow, col)
 
-                    signalRow += additionalFrameInfo
-                    for item in additionalSignalCollums:
-                        try:
-                            temp = eval("sig." + item)
-                        except:
-                            temp = ""
-                        signalRow += [temp]
-
+                    # no min/max here, because min/max has same col as values.
                     # next row
                     row += 1
                     csvtable.append(signalRow)
@@ -226,28 +277,13 @@ def dump(db, thefile, delimiter=',', **options):
             # no value table available
             else:
                 signalRow = csvRow()
-                signalRow += getFrameInfo(db, frame)
-
-                (front, back) = getSignal(db, sig, motorolaBitFormat)
-                signalRow += front
-                signalRow += ("s" if sig.is_signed else "u")
-
+                writeFramex(frame, signalRow)
                 col = head_top.__len__()
                 col = writeBuMatrixx(buList, sig, frame, signalRow, col)
-                signalRow += back
+                writeSignalx(db, sig, signalRow, col)
 
                 if sig.min is not None or sig.max is not None:
-                    signalRow += [str("{}..{}".format(sig.min, sig.max))]
-                else:
-                    signalRow += [""]
-
-                signalRow += additionalFrameInfo
-                for item in additionalSignalCollums:
-                    try:
-                        temp = eval("sig." + item)
-                    except:
-                        temp = ""
-                    signalRow += [temp]
+                    signalRow[col + 1] = str("{}..{}".format(sig.min, sig.max))
 
                 # next row
                 row += 1
