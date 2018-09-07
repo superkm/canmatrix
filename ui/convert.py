@@ -110,9 +110,7 @@ class Ui_MainWindow(object):
 
     def ConvertButton_Function(self):
         inFile = self.FileInlineEdit.text()
-        print(inFile)
         outFile = self.FileOutlineEdit.text()+self.ChooseFileComboBox.currentText()
-        print(outFile)
         can_convert.convert(inFile, outFile, dbcImportEncoding='GBK', dbcExportEncoding='GBK')
 
 

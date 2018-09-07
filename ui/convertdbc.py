@@ -5,7 +5,11 @@
 # Created by: PyQt5 UI code generator 5.11.2
 #
 # WARNING! All changes made in this file will be lost!
-import os
+
+import os.path
+
+import canmatrix.xls
+import canmatrix.dbc
 
 import canmatrix.convert as can_convert
 
